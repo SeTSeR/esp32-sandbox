@@ -1,0 +1,24 @@
+{
+  "nodes": {
+    "np": {
+      "locked": {
+        "lastModified": 1685655444,
+        "narHash": "sha256-6EujQNAeaUkWvpEZZcVF8qSfQrNVWFNNGbUJxv/A5a8=",
+        "path": "/nix/store/rw26gr9dnnl2lm7whcshiz8x4yryqqql-source",
+        "rev": "e635192892f5abbc2289eaac3a73cdb249abaefd",
+        "type": "path"
+      },
+      "original": {
+        "id": "np",
+        "type": "indirect"
+      }
+    },
+    "root": {
+      "inputs": {
+        "np": "np"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
