@@ -8,4 +8,14 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 hal = { package = "esp32-hal", version = "0.12.0" }
 esp-backtrace = { version = "0.7.0", features = ["esp32", "panic-handler", "exception-handler", "print-uart"] }
-esp-println       = { version = "0.5.0", features = ["esp32"] }
+esp-println = { version = "0.5.0", features = ["esp32", "log"] }
+esp-wifi = { git = "https://github.com/esp-rs/esp-wifi", version = "0.1.0", features = ["esp32", "ble"] }
+bleps = { git = "https://github.com/bjoernQ/bleps", package = "bleps", rev = "b82f1e7009bef7e32f0918be5b186188aa5e7109", features = ["macros"] }
+log = { version = "0.4.17" }
+
+[profile.lto]
+inherits = "release"
+opt-level = 3
+debug = 0
+strip = "symbols"
+lto = "thin"
