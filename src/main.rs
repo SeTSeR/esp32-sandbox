@@ -42,6 +42,7 @@ fn main() -> ! {
 
     let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
     let button = io.pins.gpio0.into_pull_down_input();
+    let pin = io.pins.gpio23.into_pull_down_input();
 
     let mut debounce_cnt = 500;
 
@@ -82,8 +83,13 @@ fn main() -> ! {
         };
 
         let mut rf3 = |_offset: usize, data: &mut [u8]| {
-            data[..5].copy_from_slice(&b"Hola!"[..]);
-            5
+	    if pin.is_high().unwrap() {
+		data[..15].copy_from_slice(&b"motion detected"[..]);
+		15
+	    } else {
+		data[..10].copy_from_slice(&b"no motion"[..]);
+		10
+	    }
         };
         let mut wf3 = |offset: usize, data: &[u8]| {
             println!("RECEIVED: Offset {}, data {:x?}", offset, data);
