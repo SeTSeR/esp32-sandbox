@@ -13,6 +13,14 @@ esp-wifi = { git = "https://github.com/esp-rs/esp-wifi", version = "0.1.0", feat
 bleps = { git = "https://github.com/bjoernQ/bleps", package = "bleps", rev = "b82f1e7009bef7e32f0918be5b186188aa5e7109", features = ["macros"] }
 log = { version = "0.4.17" }
 
+[profile.dev.package.esp-wifi]
+opt-level = 3
+
+[profile.dev]
+lto = "off"
+[profile.release]
+lto = "off"
+
 [profile.lto]
 inherits = "release"
 opt-level = 3

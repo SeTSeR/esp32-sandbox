@@ -28,7 +28,8 @@ fn main() -> ! {
     let system = peripherals.DPORT.split();
     let mut peripheral_clock_control = system.peripheral_clock_control;
     let clocks = ClockControl::configure(system.clock_control, CpuClock::Clock240MHz).freeze();
-    Rtc::new(peripherals.RTC_CNTL);
+    let mut rtc = Rtc::new(peripherals.RTC_CNTL);
+    rtc.rwdt.disable();
 
     let timer = TimerGroup::new(peripherals.TIMG1, &clocks, &mut peripheral_clock_control).timer0;
     let init = initialize(
