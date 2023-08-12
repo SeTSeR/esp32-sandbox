@@ -88,8 +88,8 @@ fn main() -> ! {
 		data[..15].copy_from_slice(&b"motion detected"[..]);
 		15
 	    } else {
-		data[..10].copy_from_slice(&b"no motion"[..]);
-		10
+		data[..9].copy_from_slice(&b"no motion"[..]);
+		9
 	    }
         };
         let mut wf3 = |offset: usize, data: &[u8]| {
