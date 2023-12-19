@@ -1,162 +1,103 @@
 #![no_std]
 #![no_main]
 
-use bleps::{
-    ad_structure::{
-        create_advertising_data, AdStructure, BR_EDR_NOT_SUPPORTED, LE_GENERAL_DISCOVERABLE,
-    },
-    attribute_server::{AttributeServer, NotificationData, WorkResult},
-    gatt, Ble, HciConnector,
-};
+use esp_tm1637::TM1637;
+
 use esp_backtrace as _;
-use esp_println::{logger::init_logger, println};
-use esp_wifi::{ble::controller::BleConnector, initialize, EspWifiInitFor};
-use hal::{
-    clock::{ClockControl, CpuClock},
-    peripherals::*,
-    prelude::*,
-    timer::TimerGroup,
-    Rng, Rtc, IO,
+use esp_hal::prelude::*;
+use esp_hal::{
+    adc::{AdcConfig, Attenuation, ADC, ADC1},
+    entry,
 };
+use esp_println::logger::init_logger;
+
+#[derive(Debug)]
+pub enum ClocksError {
+    Overflow,
+}
+
+pub struct Clocks {
+    hours: u8,
+    minutes: u8,
+}
+
+impl Clocks {
+    pub fn new(hours: u8, minutes: u8) -> Result<Clocks, ClocksError> {
+        if hours < 24 && minutes < 60 {
+            Ok(Clocks { hours, minutes })
+        } else {
+            Err(ClocksError::Overflow)
+        }
+    }
+
+    pub fn tick(&mut self) {
+        self.minutes += 1;
+        if self.minutes == 60 {
+            self.minutes = 0;
+            self.hours += 1;
+        }
+        if self.hours == 24 {
+            self.hours = 0;
+        }
+    }
+
+    pub fn to_value(&self) -> [u8; 4] {
+        [
+            self.hours / 10,
+            self.hours % 10,
+            self.minutes / 10,
+            self.minutes % 10,
+        ]
+    }
+}
+
+const MAX_BRIGHTNESS: u32 = 3400;
+const LEVELS: u8 = 8;
+const LEVEL_STEP: u32 = MAX_BRIGHTNESS / (LEVELS as u32);
 
 #[entry]
 fn main() -> ! {
     init_logger(log::LevelFilter::Info);
 
-    let peripherals = Peripherals::take();
+    let peripherals = esp_hal::peripherals::Peripherals::take();
+    use esp_hal::clock::{ClockControl, CpuClock};
 
-    let system = peripherals.DPORT.split();
-    let mut peripheral_clock_control = system.peripheral_clock_control;
+    let system = peripherals.SYSTEM.split();
     let clocks = ClockControl::configure(system.clock_control, CpuClock::Clock240MHz).freeze();
-    let mut rtc = Rtc::new(peripherals.RTC_CNTL);
-    rtc.rwdt.disable();
 
-    let timer = TimerGroup::new(peripherals.TIMG1, &clocks, &mut peripheral_clock_control).timer0;
-    let init = initialize(
-        EspWifiInitFor::Ble,
-        timer,
-        Rng::new(peripherals.RNG),
-        system.radio_clock_control,
-        &clocks,
+    let io = esp_hal::IO::new(peripherals.GPIO, peripherals.IO_MUX);
+    let mut delay = esp_hal::delay::Delay::new(&clocks);
+
+    let mut display = TM1637::new(
+        io.pins.gpio22.into_open_drain_output(),
+        io.pins.gpio23.into_open_drain_output(),
+        delay,
     )
     .unwrap();
 
-    let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
-    let button = io.pins.gpio0.into_pull_down_input();
-    let pin = io.pins.gpio23.into_pull_down_input();
+    let analog = peripherals.SENS.split();
+    let mut adc1_config = AdcConfig::new();
 
-    let mut debounce_cnt = 500;
+    let mut pin36 =
+        adc1_config.enable_pin(io.pins.gpio36.into_analog(), Attenuation::Attenuation11dB);
 
-    let (_, mut bluetooth) = peripherals.RADIO.split();
+    let mut adc1 = ADC::<ADC1>::adc(analog.adc1, adc1_config).unwrap();
+
+    let mut clocks = Clocks::new(20, 52).unwrap();
 
     loop {
-        let connector = BleConnector::new(&init, &mut bluetooth);
-        let hci = HciConnector::new(connector, esp_wifi::current_millis);
-        let mut ble = Ble::new(&hci);
-
-        println!("{:?}", ble.init());
-        println!("{:?}", ble.cmd_set_le_advertising_parameters());
-        println!(
-            "{:?}",
-            ble.cmd_set_le_advertising_data(
-                create_advertising_data(&[
-                    AdStructure::Flags(LE_GENERAL_DISCOVERABLE | BR_EDR_NOT_SUPPORTED),
-                    AdStructure::ServiceUuids16(&[Uuid::Uuid16(0x1809)]),
-                    AdStructure::CompleteLocalName("ESP32"),
-                ])
-                .unwrap()
-            )
-        );
-        println!("{:?}", ble.cmd_set_le_advertise_enable(true));
-
-        println!("started advertising");
-
-        let mut rf = |_offset: usize, data: &mut [u8]| {
-            data[..20].copy_from_slice(&b"Hello Bare-Metal BLE"[..]);
-            17
-        };
-        let mut wf = |offset: usize, data: &[u8]| {
-            println!("RECEIVED: {} {:x?}", offset, data);
-        };
-
-        let mut wf2 = |offset: usize, data: &[u8]| {
-            println!("RECEIVED: {} {:x?}", offset, data);
-        };
-
-        let mut rf3 = |_offset: usize, data: &mut [u8]| {
-	    if pin.is_high().unwrap() {
-		data[..15].copy_from_slice(&b"motion detected"[..]);
-		15
-	    } else {
-		data[..9].copy_from_slice(&b"no motion"[..]);
-		9
-	    }
-        };
-        let mut wf3 = |offset: usize, data: &[u8]| {
-            println!("RECEIVED: Offset {}, data {:x?}", offset, data);
-        };
-
-        gatt!([service {
-            uuid: "937312e0-2354-11eb-9f10-fbc30a62cf38",
-            characteristics: [
-                characteristic {
-                    uuid: "937312e0-2354-11eb-9f10-fbc30a62cf38",
-                    read: rf,
-                    write: wf,
-                },
-                characteristic {
-                    uuid: "957312e0-2354-11eb-9f10-fbc30a62cf38",
-                    write: wf2,
-                },
-                characteristic {
-                    name: "my_characteristic",
-                    uuid: "987312e0-2354-11eb-9f10-fbc30a62cf38",
-                    notify: true,
-                    read: rf3,
-                    write: wf3,
-                },
-            ],
-        },]);
-
-        let mut srv = AttributeServer::new(&mut ble, &mut gatt_attributes);
-
-        loop {
-            let mut notification = None;
-
-            if button.is_low().unwrap() && debounce_cnt > 0 {
-                debounce_cnt -= 1;
-                if debounce_cnt == 0 {
-                    let mut cccd = [0u8; 1];
-                    if let Some(1) = srv.get_characteristic_value(
-                        my_characteristic_notify_enable_handle,
-                        0,
-                        &mut cccd,
-                    ) {
-                        // if notifications enabled
-                        if cccd[0] == 1 {
-                            notification = Some(NotificationData::new(
-                                my_characteristic_handle,
-                                &b"Notification"[..],
-                            ));
-                        }
-                    }
-                }
-            };
-
-            if button.is_high().unwrap() {
-                debounce_cnt = 500;
-            }
-
-            match srv.do_work_with_notification(notification) {
-                Ok(res) => {
-                    if let WorkResult::GotDisconnected = res {
-                        break;
-                    }
-                }
-                Err(err) => {
-                    println!("{:x?}", err);
-                }
-            }
+        for i in 0..120 {
+            let pin36_value: u16 = nb::block!(adc1.read(&mut pin36)).unwrap();
+            let brightness = (MAX_BRIGHTNESS - pin36_value as u32) / LEVEL_STEP;
+            display
+                .send_digits(
+                    &clocks.to_value(),
+                    (i & 1) != 0,
+                    brightness.try_into().unwrap(),
+                )
+                .unwrap();
+            delay.delay_ms(500u32);
         }
+        clocks.tick();
     }
 }
